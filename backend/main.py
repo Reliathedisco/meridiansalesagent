@@ -56,7 +56,7 @@ class RAGPipeline:
     @property
     def client(self):
         if self._client is None:
-            self._client = anthropic.Anthropic()
+            self._client = anthropic.AsyncAnthropic()
         return self._client
 
     def index(self, chunks: list[dict]):
@@ -74,11 +74,11 @@ class RAGPipeline:
             if scores[idx] > 0.0
         ]
 
-    def generate(self, query: str, context_chunks: list[dict]) -> str:
+    async def generate(self, query: str, context_chunks: list[dict]) -> str:
         context = "\n\n---\n\n".join(
             f"[Source: {c['id']}]\n{c['text']}" for c in context_chunks
         )
-        response = self.client.messages.create(
+        response = await self.client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
             system=(
@@ -122,10 +122,9 @@ async def chat(req: ChatRequest):
     ensure_initialized()
     retrieved = rag.retrieve(req.message, top_k=5)
     try:
-        answer = rag.generate(req.message, retrieved)
+        answer = await rag.generate(req.message, retrieved)
     except Exception as e:
-        import traceback
-        return {"answer": f"Error ({type(e).__name__}): {e}\n{traceback.format_exc()[-500:]}", "chunks": []}
+        return {"answer": f"Error: {e}", "chunks": []}
     return {
         "answer": answer,
         "chunks": [{"source": c["id"], "score": c["score"]} for c in retrieved],
