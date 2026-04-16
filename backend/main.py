@@ -124,7 +124,8 @@ async def chat(req: ChatRequest):
     try:
         answer = rag.generate(req.message, retrieved)
     except Exception as e:
-        return {"answer": f"Error: {e}", "chunks": []}
+        import traceback
+        return {"answer": f"Error ({type(e).__name__}): {e}\n{traceback.format_exc()[-500:]}", "chunks": []}
     return {
         "answer": answer,
         "chunks": [{"source": c["id"], "score": c["score"]} for c in retrieved],
