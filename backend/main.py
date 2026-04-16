@@ -51,7 +51,13 @@ class RAGPipeline:
             stop_words="english", max_features=5000, ngram_range=(1, 2)
         )
         self.tfidf_matrix = None
-        self.client = anthropic.Anthropic()
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = anthropic.Anthropic()
+        return self._client
 
     def index(self, chunks: list[dict]):
         self.chunks = chunks
@@ -115,7 +121,10 @@ class ChatRequest(BaseModel):
 async def chat(req: ChatRequest):
     ensure_initialized()
     retrieved = rag.retrieve(req.message, top_k=5)
-    answer = rag.generate(req.message, retrieved)
+    try:
+        answer = rag.generate(req.message, retrieved)
+    except Exception as e:
+        return {"answer": f"Error: {e}", "chunks": []}
     return {
         "answer": answer,
         "chunks": [{"source": c["id"], "score": c["score"]} for c in retrieved],
