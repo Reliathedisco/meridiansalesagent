@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +9,6 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import anthropic
 
 load_dotenv()
 
@@ -23,6 +23,10 @@ app.add_middleware(
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DOCS_DIR = Path(os.environ.get("DOCS_DIR", Path(__file__).resolve().parent / "documents"))
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
 def load_and_chunk_documents() -> list[dict]:
@@ -51,13 +55,6 @@ class RAGPipeline:
             stop_words="english", max_features=5000, ngram_range=(1, 2)
         )
         self.tfidf_matrix = None
-        self._client = None
-
-    @property
-    def client(self):
-        if self._client is None:
-            self._client = anthropic.AsyncAnthropic()
-        return self._client
 
     def index(self, chunks: list[dict]):
         self.chunks = chunks
@@ -78,20 +75,32 @@ class RAGPipeline:
         context = "\n\n---\n\n".join(
             f"[Source: {c['id']}]\n{c['text']}" for c in context_chunks
         )
-        response = await self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1024,
-            system=(
-                "You are Meridian Analytics's AI support assistant. "
-                "Answer questions using ONLY the provided context from our knowledge base. "
-                "Be concise and helpful. Cite sources inline like [source]. "
-                "If the context doesn't cover the question, say so honestly."
-            ),
-            messages=[
-                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
-            ],
-        )
-        return response.content[0].text
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                ANTHROPIC_URL,
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": ANTHROPIC_MODEL,
+                    "max_tokens": 1024,
+                    "system": (
+                        "You are Meridian Analytics's AI support assistant. "
+                        "Answer questions using ONLY the provided context from our knowledge base. "
+                        "Be concise and helpful. Cite sources inline like [source]. "
+                        "If the context doesn't cover the question, say so honestly."
+                    ),
+                    "messages": [
+                        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
+                    ],
+                },
+            )
+        data = resp.json()
+        if resp.status_code != 200:
+            return f"API error ({resp.status_code}): {data.get('error', {}).get('message', resp.text)}"
+        return data["content"][0]["text"]
 
 
 rag = RAGPipeline()
