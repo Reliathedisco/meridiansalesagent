@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -5,7 +6,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -71,22 +72,14 @@ class RAGPipeline:
             if scores[idx] > 0.0
         ]
 
-    async def generate(self, query: str, context_chunks: list[dict]) -> str:
+    def _build_request_body(self, query: str, context_chunks: list[dict], stream: bool = False) -> dict:
         context = "\n\n---\n\n".join(
             f"[Source: {c['id']}]\n{c['text']}" for c in context_chunks
         )
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                ANTHROPIC_URL,
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": ANTHROPIC_MODEL,
-                    "max_tokens": 1024,
-                    "system": (
+        body = {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 1024,
+            "system": (
                         "You are Meridian AI — the intelligent knowledge assistant for Meridian Analytics.\n\n"
                         "Your role is to deliver clear, confident, and helpful answers about Meridian's platform, "
                         "including product capabilities, pricing, API, onboarding, and security.\n\n"
@@ -160,15 +153,72 @@ class RAGPipeline:
                         "Create a seamless, trustworthy experience that demonstrates Meridian as a polished, "
                         "intelligent, and valuable platform."
                     ),
-                    "messages": [
-                        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
-                    ],
+            "messages": [
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
+            ],
+        }
+        if stream:
+            body["stream"] = True
+        return body
+
+    async def generate(self, query: str, context_chunks: list[dict]) -> str:
+        body = self._build_request_body(query, context_chunks)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                ANTHROPIC_URL,
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
                 },
+                json=body,
             )
         data = resp.json()
         if resp.status_code != 200:
             return f"API error ({resp.status_code}): {data.get('error', {}).get('message', resp.text)}"
         return data["content"][0]["text"]
+
+    async def generate_stream(self, query: str, context_chunks: list[dict]):
+        body = self._build_request_body(query, context_chunks, stream=True)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                ANTHROPIC_URL,
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=body,
+            ) as resp:
+                if resp.status_code != 200:
+                    error_body = await resp.aread()
+                    try:
+                        err = json.loads(error_body).get("error", {}).get("message", error_body.decode())
+                    except Exception:
+                        err = error_body.decode()
+                    yield {"type": "error", "text": f"API error ({resp.status_code}): {err}"}
+                    return
+
+                buf = ""
+                async for raw_chunk in resp.aiter_text():
+                    buf += raw_chunk
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        payload = line[6:]
+                        if payload == "[DONE]":
+                            return
+                        try:
+                            event = json.loads(payload)
+                        except json.JSONDecodeError:
+                            continue
+                        if event.get("type") == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                yield {"type": "text", "text": delta["text"]}
 
 
 rag = RAGPipeline()
@@ -198,14 +248,20 @@ class ChatRequest(BaseModel):
 async def chat(req: ChatRequest):
     ensure_initialized()
     retrieved = rag.retrieve(req.message, top_k=5)
-    try:
-        answer = await rag.generate(req.message, retrieved)
-    except Exception as e:
-        return {"answer": f"Error: {e}", "chunks": []}
-    return {
-        "answer": answer,
-        "chunks": [{"source": c["id"], "score": c["score"]} for c in retrieved],
-    }
+    chunks_meta = [{"source": c["id"], "score": c["score"]} for c in retrieved]
+
+    async def event_stream():
+        try:
+            async for delta in rag.generate_stream(req.message, retrieved):
+                if delta["type"] == "text":
+                    yield f"data: {json.dumps({'type': 'text', 'text': delta['text']})}\n\n"
+                elif delta["type"] == "error":
+                    yield f"data: {json.dumps({'type': 'error', 'text': delta['text']})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'chunks': chunks_meta})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/stats")

@@ -177,7 +177,7 @@
   <script>
   let isThinking = false;
 
-  function appendMsg(role, content, chunks) {
+  function createMsgEl(role) {
     const msgs = document.getElementById('messages');
     const wrapper = document.createElement('div');
     wrapper.className = 'msg ' + role;
@@ -190,47 +190,37 @@
     const bubble = document.createElement('div');
     bubble.className = 'bubble ' + role;
     bubble.style.whiteSpace = 'pre-wrap';
-
-    // Fix indentation for text in bubble
-    // If the message has leading spaces or tabs, preserve them visually as indent
-    // This transforms tabs to 4 spaces, and leading spaces get replaced by &nbsp; for each line
-    function preserveIndent(str) {
-      return str
-        .replace(/\t/g, '    ')
-        .split('\n')
-        .map(line => line.replace(/^([ ]+)/, function(s) {
-          return '&nbsp;'.repeat(s.length);
-        }))
-        .join('<br>');
-    }
-
-    // Set content, using innerHTML if there is leading whitespace or multiline, else use textContent
-    if (/^\s|\n/.test(content)) {
-      bubble.innerHTML = preserveIndent(escHtml(content));
-    } else {
-      bubble.textContent = content;
-    }
     inner.appendChild(bubble);
-
-    if (chunks && chunks.length) {
-      const trace = document.createElement('div');
-      trace.className = 'retrieval-trace';
-      trace.innerHTML = '<div class="trace-label">Retrieved chunks</div>';
-      chunks.forEach(function(c) {
-        const row = document.createElement('div');
-        row.className = 'trace-row';
-        row.innerHTML =
-          '<span class="trace-chunk">' + escHtml(c[0]) + '</span>' +
-          '<span class="trace-score">sim: ' + escHtml(c[1]) + '</span>';
-        trace.appendChild(row);
-      });
-      inner.appendChild(trace);
-    }
 
     wrapper.appendChild(avatar);
     wrapper.appendChild(inner);
     msgs.appendChild(wrapper);
     msgs.scrollTop = msgs.scrollHeight;
+    return { bubble: bubble, inner: inner };
+  }
+
+  function appendMsg(role, content, chunks) {
+    var el = createMsgEl(role);
+    el.bubble.textContent = content;
+    if (chunks && chunks.length) {
+      appendChunksTrace(el.inner, chunks);
+    }
+    document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+  }
+
+  function appendChunksTrace(inner, chunks) {
+    var trace = document.createElement('div');
+    trace.className = 'retrieval-trace';
+    trace.innerHTML = '<div class="trace-label">Retrieved chunks</div>';
+    chunks.forEach(function(c) {
+      var row = document.createElement('div');
+      row.className = 'trace-row';
+      row.innerHTML =
+        '<span class="trace-chunk">' + escHtml(c[0]) + '</span>' +
+        '<span class="trace-score">sim: ' + escHtml(c[1]) + '</span>';
+      trace.appendChild(row);
+    });
+    inner.appendChild(trace);
   }
 
   function escHtml(s) {
@@ -285,17 +275,47 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ message: q })
       });
-      var data = await res.json();
+
       removeThinking();
+      var el = createMsgEl('ai');
+      var fullText = '';
+      var msgs = document.getElementById('messages');
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = '';
+
+      while (true) {
+        var result = await reader.read();
+        if (result.done) break;
+        buf += decoder.decode(result.value, { stream: true });
+        var lines = buf.split('\n\n');
+        buf = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (!line.startsWith('data: ')) continue;
+          try {
+            var evt = JSON.parse(line.slice(6));
+          } catch(e) { continue; }
+          if (evt.type === 'text') {
+            fullText += evt.text;
+            el.bubble.textContent = fullText;
+            msgs.scrollTop = msgs.scrollHeight;
+          } else if (evt.type === 'done' && evt.chunks && evt.chunks.length) {
+            var chunks = evt.chunks.map(function(c) {
+              return [c.source, String(c.score)];
+            });
+            appendChunksTrace(el.inner, chunks);
+          } else if (evt.type === 'error') {
+            fullText += evt.text;
+            el.bubble.textContent = fullText;
+          }
+        }
+      }
       isThinking = false;
-      var chunks = (data.chunks || []).map(function(c) {
-        return [c.source, String(c.score)];
-      });
-      appendMsg('ai', data.answer, chunks);
     } catch(e) {
       removeThinking();
       isThinking = false;
-      appendMsg('ai', "I'm having trouble connecting to the backend. Make sure the server is running on port 8000.", null);
+      appendMsg('ai', "I'm having trouble connecting. Please try again.", null);
     }
   }
 
