@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meridian AI — Knowledge Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --sans:'DM Sans',system-ui,sans-serif;
+      --mono:'DM Mono','SF Mono',monospace;
+      --bg:#ffffff;
+      --bg2:#f8f9fb;
+      --bg3:#f1f3f5;
+      --t1:#111318;
+      --t2:#4b5060;
+      --t3:#8b90a0;
+      --border:#e8eaed;
+      --border2:#d0d3da;
+      --accent:#185FA5;
+      --accent-light:#e8f1fb;
+      --accent-text:#0C447C;
+      --green:#1D9E75;
+      --green-light:#e1f5ee;
+      --green-text:#0F6E56;
+      --radius:12px;
+    }
+    html,body{height:100%;font-family:var(--sans);background:#f0f2f5;color:var(--t1)}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+
+    .page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+
+    .shell{display:grid;grid-template-columns:260px 1fr;width:100%;max-width:960px;height:620px;border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;background:var(--bg);box-shadow:0 1px 3px rgba(0,0,0,0.04),0 8px 24px rgba(0,0,0,0.06)}
+
+    .sidebar{background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column}
+    .sidebar-header{padding:18px 18px 14px;border-bottom:1px solid var(--border)}
+    .logo{display:flex;align-items:center;gap:10px}
+    .logo-mark{width:32px;height:32px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center}
+    .logo-mark svg{width:16px;height:16px;fill:white}
+    .logo-name{font-size:14px;font-weight:600;color:var(--t1);letter-spacing:-0.01em}
+    .logo-sub{font-size:11px;color:var(--t3);margin-top:1px}
+
+    .sidebar-section{padding:16px 12px 8px;flex:1;overflow-y:auto}
+    .section-label{font-size:10px;font-weight:600;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;padding:0 6px;margin-bottom:8px}
+    .doc-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:default;transition:background 0.15s}
+    .doc-item:hover{background:var(--bg)}
+    .doc-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--green)}
+    .doc-label{font-size:12px;color:var(--t2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
+    .doc-chunks{font-size:10px;color:var(--t3);font-family:var(--mono)}
+
+    .sidebar-footer{padding:12px 14px;border-top:1px solid var(--border)}
+    .stat-row{display:flex;justify-content:space-between;margin-bottom:5px}
+    .stat-row:last-child{margin-bottom:0}
+    .stat-label{font-size:11px;color:var(--t3)}
+    .stat-val{font-size:11px;font-weight:500;color:var(--t2);font-family:var(--mono)}
+
+    .main{display:flex;flex-direction:column;background:var(--bg);min-width:0}
+    .topbar{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .topbar-title{font-size:14px;font-weight:600;color:var(--t1)}
+    .badge{font-size:10px;padding:3px 9px;border-radius:20px;font-weight:500;letter-spacing:0.02em}
+    .badge-live{background:var(--green-light);color:var(--green-text)}
+    .badge-model{background:var(--accent-light);color:var(--accent-text);font-family:var(--mono)}
+
+    .messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+    .msg{display:flex;gap:10px;max-width:100%}
+    .msg.user{flex-direction:row-reverse;margin-left:auto}
+    .avatar{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+    .avatar.ai{background:var(--accent);color:white}
+    .avatar.user{background:var(--bg3);color:var(--t2);border:1px solid var(--border)}
+    .bubble{max-width:78%;padding:10px 14px;border-radius:12px;font-size:13.5px;line-height:1.65;color:var(--t1)}
+    .bubble.ai{background:var(--bg2);border:1px solid var(--border);border-top-left-radius:4px}
+    .bubble.user{background:var(--accent);color:white;border-top-right-radius:4px;min-width:60px;text-align:center}
+
+    .retrieval-trace{margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:6px;border-left:2px solid var(--accent)}
+    .trace-label{font-size:10px;font-weight:600;color:var(--t3);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:5px}
+    .trace-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+    .trace-row:last-child{margin-bottom:0}
+    .trace-chunk{font-size:10px;color:var(--t2);font-family:var(--mono)}
+    .trace-score{font-size:10px;color:var(--green);font-family:var(--mono)}
+
+    .thinking-bubble{display:flex;align-items:center;gap:6px;padding:10px 14px}
+    .dots span{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);margin:0 1.5px;animation:dot 1.2s infinite}
+    .dots span:nth-child(2){animation-delay:0.2s}
+    .dots span:nth-child(3){animation-delay:0.4s}
+    @keyframes dot{0%,80%,100%{opacity:0.2}40%{opacity:1}}
+
+    .suggested{display:flex;gap:6px;padding:0 20px 12px;flex-wrap:wrap}
+    .sug-pill{font-size:11px;background:var(--bg2);border:1px solid var(--border);color:var(--t2);padding:5px 12px;border-radius:20px;cursor:pointer;transition:all 0.15s;white-space:nowrap}
+    .sug-pill:hover{background:var(--accent-light);border-color:var(--accent);color:var(--accent-text)}
+
+    .input-area{padding:14px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .input-wrap{flex:1;display:flex;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:0 12px;transition:border-color 0.15s}
+    .input-wrap:focus-within{border-color:var(--accent)}
+    .input-wrap input{flex:1;border:none;background:transparent;font-size:13px;color:var(--t1);font-family:var(--sans);padding:10px 0;outline:none}
+    .input-wrap input::placeholder{color:var(--t3)}
+    .send-btn{width:34px;height:34px;border-radius:8px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity 0.15s}
+    .send-btn:hover{opacity:0.85}
+    .send-btn svg{width:14px;height:14px;fill:white}
+
+    @media(max-width:480px){
+      .shell{grid-template-columns:1fr;height:100vh;max-width:100%;border-radius:0;border:none}
+      .sidebar{display:none}
+      .page{padding:0}
+    }
+  </style>
+</head>
+<body>
+  <h2 class="sr-only">RAG chatbot demo for Meridian Analytics</h2>
+
+  <div class="page">
+    <div class="shell">
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">
+            <div class="logo-mark">
+              <svg viewBox="0 0 16 16"><path d="M8 2L14 6V10L8 14L2 10V6L8 2Z"/></svg>
+            </div>
+            <div>
+              <div class="logo-name">Meridian AI</div>
+              <div class="logo-sub">Knowledge Assistant</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-label">Knowledge base</div>
+          <div id="kb-list">
+            <div class="doc-item"><div class="doc-dot" style="background:var(--t3)"></div><div class="doc-label" style="color:var(--t3)">Loading...</div></div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="stat-row"><span class="stat-label">Retrieval</span><span class="stat-val">TF-IDF</span></div>
+          <div class="stat-row"><span class="stat-label">LLM</span><span class="stat-val">Claude Sonnet 4</span></div>
+          <div class="stat-row"><span class="stat-label">Top-k</span><span class="stat-val">5</span></div>
+          <div class="stat-row"><span class="stat-label">Total chunks</span><span class="stat-val" id="stat-docs">&mdash;</span></div>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="topbar">
+          <div class="topbar-title">Support chat</div>
+          <span class="badge badge-live">Live</span>
+          <span class="badge badge-model">claude-sonnet-4</span>
+        </div>
+
+        <div class="messages" id="messages">
+          <div class="msg">
+            <div class="avatar ai">M</div>
+            <div>
+              <div class="bubble ai">Hi! I'm Meridian's AI assistant. I can answer questions about our product, pricing, API, and security. What would you like to know?</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="suggested" id="suggestions">
+          <div class="sug-pill" onclick="askQuestion('What does Meridian Analytics do?')">What does Meridian do?</div>
+          <div class="sug-pill" onclick="askQuestion('What are the pricing plans?')">Pricing plans</div>
+          <div class="sug-pill" onclick="askQuestion('Is Meridian SOC 2 certified?')">SOC 2 compliance</div>
+          <div class="sug-pill" onclick="askQuestion('How do I set up the API?')">API setup</div>
+        </div>
+
+        <div class="input-area">
+          <div class="input-wrap">
+            <input type="text" id="userInput" placeholder="Ask anything about Meridian..." onkeydown="if(event.key==='Enter')sendMsg()" />
+          </div>
+          <button class="send-btn" onclick="sendMsg()">
+            <svg viewBox="0 0 16 16"><path d="M2 8L14 2L10 8L14 14L2 8Z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  let isThinking = false;
+
+  function appendMsg(role, content, chunks) {
+    const msgs = document.getElementById('messages');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg ' + role;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar ' + role;
+    avatar.textContent = role === 'ai' ? 'M' : 'U';
+
+    const inner = document.createElement('div');
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble ' + role;
+    bubble.style.whiteSpace = 'pre-wrap';
+
+    // Fix indentation for text in bubble
+    // If the message has leading spaces or tabs, preserve them visually as indent
+    // This transforms tabs to 4 spaces, and leading spaces get replaced by &nbsp; for each line
+    function preserveIndent(str) {
+      return str
+        .replace(/\t/g, '    ')
+        .split('\n')
+        .map(line => line.replace(/^([ ]+)/, function(s) {
+          return '&nbsp;'.repeat(s.length);
+        }))
+        .join('<br>');
+    }
+
+    // Set content, using innerHTML if there is leading whitespace or multiline, else use textContent
+    if (/^\s|\n/.test(content)) {
+      bubble.innerHTML = preserveIndent(escHtml(content));
+    } else {
+      bubble.textContent = content;
+    }
+    inner.appendChild(bubble);
+
+    if (chunks && chunks.length) {
+      const trace = document.createElement('div');
+      trace.className = 'retrieval-trace';
+      trace.innerHTML = '<div class="trace-label">Retrieved chunks</div>';
+      chunks.forEach(function(c) {
+        const row = document.createElement('div');
+        row.className = 'trace-row';
+        row.innerHTML =
+          '<span class="trace-chunk">' + escHtml(c[0]) + '</span>' +
+          '<span class="trace-score">sim: ' + escHtml(c[1]) + '</span>';
+        trace.appendChild(row);
+      });
+      inner.appendChild(trace);
+    }
+
+    wrapper.appendChild(avatar);
+    wrapper.appendChild(inner);
+    msgs.appendChild(wrapper);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function escHtml(s) {
+    var d = document.createElement('span');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function showThinking() {
+    var msgs = document.getElementById('messages');
+    var el = document.createElement('div');
+    el.className = 'msg';
+    el.id = 'thinking';
+    el.innerHTML = '<div class="avatar ai">M</div><div class="bubble ai thinking-bubble"><div class="dots"><span></span><span></span><span></span></div></div>';
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function removeThinking() {
+    var el = document.getElementById('thinking');
+    if (el) el.remove();
+  }
+
+  function hideSuggestions() {
+    var s = document.getElementById('suggestions');
+    if (s) s.style.display = 'none';
+  }
+
+  function askQuestion(q) {
+    if (isThinking) return;
+    document.getElementById('userInput').value = q;
+    sendMsg();
+  }
+
+  function sendMsg() {
+    if (isThinking) return;
+    var input = document.getElementById('userInput');
+    var q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+    hideSuggestions();
+    appendMsg('user', q, null);
+    callAPI(q);
+  }
+
+  async function callAPI(q) {
+    isThinking = true;
+    showThinking();
+    try {
+      var res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ message: q })
+      });
+      var data = await res.json();
+      removeThinking();
+      isThinking = false;
+      var chunks = (data.chunks || []).map(function(c) {
+        return [c.source, String(c.score)];
+      });
+      appendMsg('ai', data.answer, chunks);
+    } catch(e) {
+      removeThinking();
+      isThinking = false;
+      appendMsg('ai', "I'm having trouble connecting to the backend. Make sure the server is running on port 8000.", null);
+    }
+  }
+  </script>
+
+  async function loadStats() {
+    try {
+      var res = await fetch('/api/stats');
+      var data = await res.json();
+      var kb = document.getElementById('kb-list');
+      if (kb && data.documents) {
+        kb.innerHTML = '';
+        data.documents.forEach(function(doc) {
+          var name = doc.name.replace('.md', '').replace(/-/g, ' ');
+          kb.innerHTML +=
+            '<div class="doc-item">' +
+              '<div class="doc-dot"></div>' +
+              '<div class="doc-label">' + escHtml(name) + '</div>' +
+              '<div class="doc-chunks">' + doc.chunks + ' chunks</div>' +
+            '</div>';
+        });
+      }
+      var countEl = document.getElementById('stat-docs');
+      if (countEl) countEl.textContent = data.total_chunks;
+    } catch(e) {}
+  }
+
+  loadStats();
+  </script>
+</body>
+</html>
