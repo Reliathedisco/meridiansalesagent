@@ -24,7 +24,7 @@ app.add_middleware(
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DOCS_DIR = Path(os.environ.get("DOCS_DIR", Path(__file__).resolve().parent / "documents"))
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
