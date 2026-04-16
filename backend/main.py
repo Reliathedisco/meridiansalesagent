@@ -22,7 +22,7 @@ app.add_middleware(
 )
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DOCS_DIR = Path(__file__).resolve().parent / "documents"
+DOCS_DIR = Path(os.environ.get("DOCS_DIR", Path(__file__).resolve().parent / "documents"))
 
 
 def load_and_chunk_documents() -> list[dict]:
