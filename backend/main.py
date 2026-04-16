@@ -89,13 +89,22 @@ class RAGPipeline:
 
 
 rag = RAGPipeline()
+_initialized = False
+
+
+def ensure_initialized():
+    global _initialized
+    if _initialized:
+        return
+    docs = load_and_chunk_documents()
+    rag.index(docs)
+    print(f"Indexed {len(docs)} chunks from {len(set(c['source'] for c in docs))} documents")
+    _initialized = True
 
 
 @app.on_event("startup")
 def startup():
-    docs = load_and_chunk_documents()
-    rag.index(docs)
-    print(f"Indexed {len(docs)} chunks from {len(set(c['source'] for c in docs))} documents")
+    ensure_initialized()
 
 
 class ChatRequest(BaseModel):
@@ -104,6 +113,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
+    ensure_initialized()
     retrieved = rag.retrieve(req.message, top_k=5)
     answer = rag.generate(req.message, retrieved)
     return {
@@ -114,6 +124,7 @@ async def chat(req: ChatRequest):
 
 @app.get("/api/stats")
 async def stats():
+    ensure_initialized()
     sources = sorted(set(c["source"] for c in rag.chunks))
     return {
         "total_chunks": len(rag.chunks),
@@ -125,6 +136,7 @@ async def stats():
     }
 
 
-@app.get("/")
-async def serve_frontend():
-    return FileResponse(ROOT_DIR / "rag_chatbot_showcase.html")
+if os.environ.get("VERCEL") is None:
+    @app.get("/")
+    async def serve_frontend():
+        return FileResponse(ROOT_DIR / "rag_chatbot_showcase.html")
